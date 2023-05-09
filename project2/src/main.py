@@ -420,14 +420,14 @@ def prepare_vao_hierarchy():
     VAOs = {}
     # create a hirarchical model - Node(parent, shape_transform, color)
     Nodes = {}
-    Nodes['pipe'] = Node(None, glm.scale((.2,.2,.2,)),              glm.vec3(0., 1., 0.))
+    Nodes['pipe'] = Node(None, glm.scale((.2,.2,.2,)),              glm.vec3(0., .8, 0.))
     Nodes['star'] = Node(Nodes['pipe'], glm.scale((.08,.08,.08)),   glm.vec3(1., 1., .1))
     Nodes['cube'] = Node(Nodes['pipe'], glm.scale((.02,.02,.02)),   glm.vec3(1., .8, 0.))
     Nodes['coin'] = Node(Nodes['cube'], glm.scale((.2,.2,.2)),      glm.vec3(1., 1., 0.))
     Nodes['mario'] = Node(Nodes['cube'], glm.scale((.01,.01,.01)),  glm.vec3(1., 0., 0.))
 
     for name in Nodes.keys():
-        vertices = files_to_vertex_array(os.getcwd() + '\\' + name + '.obj')
+        vertices = files_to_vertex_array(name + '.obj')
         # create and activate VAO (vertex array object)
         VAO = glGenVertexArrays(1)  # create a vertex array object ID and store it to VAO variable
         glBindVertexArray(VAO)      # activate VAO
@@ -485,7 +485,7 @@ def draw_hierarchy(vaos, nodes, VP, MVP_loc, M_loc, view_pos, view_pos_loc, colo
     I = glm.mat4()
     nodes['pipe'].set_transform(glm.rotate(t / 10, glm.vec3(0, 1, 0)) * glm.translate(glm.vec3(.5,0.,0.)))
     nodes['star'].set_transform(glm.rotate(t, glm.vec3(0.,1.,0)) * glm.translate(glm.vec3(0.,3.,0.)))
-    nodes['cube'].set_transform(glm.translate(glm.vec3(0.,2.,1.5)))
+    nodes['cube'].set_transform(glm.translate(glm.vec3(0.,2.,1.5)) * glm.scale(glm.vec3(1.,glm.max(.9, glm.abs(glm.sin(t * 2))), 1.)))
     nodes['coin'].set_transform(glm.translate(glm.vec3(0., .8 + glm.abs(glm.cos(t * 2)), 0.)) * glm.rotate(t * 2, glm.vec3(0,1,0)))
     nodes['mario'].set_transform(glm.translate(glm.vec3(0., -1 - glm.abs(glm.cos(t * 2)), 0.)))
 
