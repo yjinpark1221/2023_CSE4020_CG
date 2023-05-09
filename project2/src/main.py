@@ -12,7 +12,7 @@ g_perspective = True
 g_trans = glm.vec3(0.,0.,0.)
 g_vertices = np.zeros(0, 'float32')
 g_indices = glm.array.zeros(0, glm.float32)
-hierarchical_mode = False
+hierarchical_mode = 0
 file_dropped = 0
 solid_mode = False
 
@@ -52,6 +52,7 @@ g_fragment_shader_src = '''
 
 in vec3 vout_surface_pos;
 in vec3 vout_normal;
+uniform vec3 color;
 
 out vec4 FragColor;
 
@@ -62,7 +63,7 @@ void main()
     // light and material properties
     vec3 light_pos = vec3(3,2,4);
     vec3 light_color = vec3(1,1,1);
-    vec3 material_color = vec3(1,1,1);
+    vec3 material_color = color;
     float material_shininess = 32.0;
 
     // light components
@@ -98,6 +99,42 @@ void main()
 }
 '''
 
+class Node:
+    def __init__(self, parent, shape_transform, color):
+        # hierarchy
+        self.parent = parent
+        self.children = []
+        if parent is not None:
+            parent.children.append(self)
+
+        # transform
+        self.transform = glm.mat4()
+        self.global_transform = glm.mat4()
+
+        # shape
+        self.shape_transform = shape_transform
+        self.color = color
+        self.num_vertex = 0
+
+    def set_transform(self, transform):
+        self.transform = transform
+
+    def update_tree_global_transform(self):
+        if self.parent is not None:
+            self.global_transform = self.parent.get_global_transform() * self.transform
+        else:
+            self.global_transform = self.transform
+
+        for child in self.children:
+            child.update_tree_global_transform()
+
+    def get_global_transform(self):
+        return self.global_transform
+    def get_shape_transform(self):
+        return self.shape_transform
+    def get_color(self):
+        return self.color
+    
 def load_shaders(vertex_shader_source, fragment_shader_source):
     # build and compile our shader program
     # ------------------------------------
@@ -195,7 +232,7 @@ def key_callback(window, key, scancode, action, mods):
             if key==GLFW_KEY_V:
                 g_perspective = not g_perspective
             elif key==GLFW_KEY_H:
-                hierarchical_mode = not hierarchical_mode
+                hierarchical_mode = 1
             elif key==GLFW_KEY_Z:
                 solid_mode = not solid_mode
 
@@ -204,10 +241,7 @@ def scroll_callback(window, x_offset, y_offset):
     global g_distance
     g_distance *= np.power(2, y_offset/10)
 
-def handle_dropped_files(path):
-    global file_dropped, g_vertices
-    file_dropped = 1
-    # print(path)
+def files_to_vertex_array(path):
     filename = os.path.basename(path)
     f = open(path)
     
@@ -222,37 +256,46 @@ def handle_dropped_files(path):
     face_normal_array = np.array([], 'int32')
     for line in lines:
         fields = line.split()
+        # print('line [' + line.strip() + ']')
+        if len(fields) == 0:
+            continue
         if fields[0] == 'v':
-            print('accepting ' + line.strip())
+            # print('accepting ' + line.strip())
             vertex = (fields[1], fields[2], fields[3])
             vertex_array = np.append(vertex_array, np.float32(vertex))
         elif fields[0] == 'vn':
-            print('accepting ' + line.strip())
+            # print('accepting ' + line.strip())
             normal = (fields[1], fields[2], fields[3])
             normal_array = np.append(normal_array, np.float32(normal))
         elif fields[0] == 'f':
-            print('accepting ' + line.strip())
+            # print('accepting ' + line.strip())
             if len(fields) == 4:
                 num_face_three += 1
             elif len(fields) == 5:
                 num_face_four += 1
             elif len(fields) >= 6:
                 num_face_more += 1
-            else:
-                print("?")
+            # else:
+                # print("?")
 
-            print(fields)
             v0 = fields[1].split('/')
+            # print(v0)
             for idx in range(2, len(fields) - 1):
                 v1 = fields[idx].split('/')
                 v2 = fields[idx + 1].split('/')
+                if len(v0) < 3:
+                    v0.append(-1)
+                if len(v1) < 3:
+                    v1.append(-1)
+                if len(v2) < 3:
+                    v2.append(-1)
                 tmpv = (int(v0[0]) - 1, int(v1[0]) - 1, int(v2[0]) - 1)
                 tmpvn = (int(v0[-1]) - 1, int(v1[-1]) - 1, int(v2[-1]) - 1)
                 face_vertex_array = np.append(face_vertex_array, np.int32(tmpv))
                 face_normal_array = np.append(face_normal_array, np.int32(tmpvn))
             num_face_total += 1
-        else:
-            print('ignoring ' + line.strip())
+        # else:
+            # print('ignoring ' + line.strip())
     print('Obj file name: ' + filename)
     print('Total number of faces: ' + str(num_face_total))
     print('Number of faces with 3 vertices: ' + str(num_face_three))
@@ -262,105 +305,25 @@ def handle_dropped_files(path):
     normal_array = normal_array.reshape(int(normal_array.size / 3), 3)
     face_vertex_array = face_vertex_array.reshape(int(face_vertex_array.size / 3), 3)
     face_normal_array = face_normal_array.reshape(int(face_normal_array.size / 3), 3)
-    print(vertex_array)
-    print(normal_array)
-    print(face_vertex_array)
-    print(face_normal_array)
-    # print(face_vertex_array.size)
-    # print(face_vertex_array.shape)
-    g_vertices = np.zeros(0, 'float32')
+    vertices = np.zeros(0, 'float32')
+    if len(normal_array) == 0:
+        normal_array = np.append(normal_array, [0,0,0])
     for idx in range(face_vertex_array.shape[0]):
-        g_vertices = np.append(g_vertices, vertex_array[face_vertex_array[idx][0]])
-        g_vertices = np.append(g_vertices, normal_array[face_normal_array[idx][0]])
-        g_vertices = np.append(g_vertices, vertex_array[face_vertex_array[idx][1]])
-        g_vertices = np.append(g_vertices, normal_array[face_normal_array[idx][1]])
-        g_vertices = np.append(g_vertices, vertex_array[face_vertex_array[idx][2]])
-        g_vertices = np.append(g_vertices, normal_array[face_normal_array[idx][2]])
-        # print('face_normal_array value')
-        # print(face_normal_array[idx][0])
-        # print('normal_array value')
-        # print(normal_array[face_normal_array[idx][0]])
-        print(g_vertices)
-
+        vertices = np.append(vertices, vertex_array[face_vertex_array[idx][0]])
+        vertices = np.append(vertices, normal_array[face_normal_array[idx][0]])
+        vertices = np.append(vertices, vertex_array[face_vertex_array[idx][1]])
+        vertices = np.append(vertices, normal_array[face_normal_array[idx][1]])
+        vertices = np.append(vertices, vertex_array[face_vertex_array[idx][2]])
+        vertices = np.append(vertices, normal_array[face_normal_array[idx][2]])
+    return glm.array(vertices)
 
 def drop_callback(window, paths):
+    global g_vertices, file_dropped, hierarchy_mode
     for path in paths:
-        handle_dropped_files(path)
+        g_vertices = files_to_vertex_array(path)
+        file_dropped = 1
+        hierarchy_mode = 0
 
-def prepare_vao_cube():
-    # prepare vertex data (in main memory)
-    # 36 vertices for 12 triangles
-    vertices = glm.array(glm.float32,
-        # position            color
-        -0.5 ,  0.5 ,  0.5 ,  0, 0, 1, # v0
-         0.5 , -0.5 ,  0.5 ,  0, 0, 1, # v2
-         0.5 ,  0.5 ,  0.5 ,  0, 0, 1, # v1
-                    
-        -0.5 ,  0.5 ,  0.5 ,  0, 0, 1, # v0
-        -0.5 , -0.5 ,  0.5 ,  0, 0, 1, # v3
-         0.5 , -0.5 ,  0.5 ,  0, 0, 1, # v2
-                    
-        -0.5 ,  0.5 , -0.5 ,  0, 0, -1, # v4
-         0.5 ,  0.5 , -0.5 ,  0, 0, -1, # v5
-         0.5 , -0.5 , -0.5 ,  0, 0, -1, # v6
-                    
-        -0.5 ,  0.5 , -0.5 ,  0, 0, -1, # v4
-         0.5 , -0.5 , -0.5 ,  0, 0, -1, # v6
-        -0.5 , -0.5 , -0.5 ,  0, 0, -1, # v7
-                    
-        -0.5 ,  0.5 ,  0.5 ,  0, 1, 0, # v0
-         0.5 ,  0.5 ,  0.5 ,  0, 1, 0, # v1
-         0.5 ,  0.5 , -0.5 ,  0, 1, 0, # v5
-                    
-        -0.5 ,  0.5 ,  0.5 ,  0, 1, 0, # v0
-         0.5 ,  0.5 , -0.5 ,  0, 1, 0, # v5
-        -0.5 ,  0.5 , -0.5 ,  0, 1, 0, # v4
- 
-        -0.5 , -0.5 ,  0.5 ,  0,-1, 0, # v3
-         0.5 , -0.5 , -0.5 ,  0,-1, 0, # v6
-         0.5 , -0.5 ,  0.5 ,  0,-1, 0, # v2
-                    
-        -0.5 , -0.5 ,  0.5 ,  0,-1, 0, # v3
-        -0.5 , -0.5 , -0.5 ,  0,-1, 0, # v7
-         0.5 , -0.5 , -0.5 ,  0,-1, 0, # v6
-                    
-         0.5 ,  0.5 ,  0.5 ,  1, 0, 0, # v1
-         0.5 , -0.5 ,  0.5 ,  1, 0, 0, # v2
-         0.5 , -0.5 , -0.5 ,  1, 0, 0, # v6
-                    
-         0.5 ,  0.5 ,  0.5 ,  1, 0, 0, # v1
-         0.5 , -0.5 , -0.5 ,  1, 0, 0, # v6
-         0.5 ,  0.5 , -0.5 ,  1, 0, 0, # v5
-                    
-        -0.5 ,  0.5 ,  0.5 , -1, 0, 0, # v0
-        -0.5 , -0.5 , -0.5 , -1, 0, 0, # v7
-        -0.5 , -0.5 ,  0.5 , -1, 0, 0, # v3
-                    
-        -0.5 ,  0.5 ,  0.5 , -1, 0, 0, # v0
-        -0.5 ,  0.5 , -0.5 , -1, 0, 0, # v4
-        -0.5 , -0.5 , -0.5 , -1, 0, 0, # v7
-    )
-
-    # create and activate VAO (vertex array object)
-    VAO = glGenVertexArrays(1)  # create a vertex array object ID and store it to VAO variable
-    glBindVertexArray(VAO)      # activate VAO
-
-    # create and activate VBO (vertex buffer object)
-    VBO = glGenBuffers(1)   # create a buffer object ID and store it to VBO variable
-    glBindBuffer(GL_ARRAY_BUFFER, VBO)  # activate VBO as a vertex buffer object
-
-    # copy vertex data to VBO
-    glBufferData(GL_ARRAY_BUFFER, vertices.nbytes, vertices.ptr, GL_STATIC_DRAW) # allocate GPU memory for and copy vertex data to the currently bound vertex buffer
-
-    # configure vertex positions
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * glm.sizeof(glm.float32), None)
-    glEnableVertexAttribArray(0)
-
-    # configure vertex colors
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * glm.sizeof(glm.float32), ctypes.c_void_p(3*glm.sizeof(glm.float32)))
-    glEnableVertexAttribArray(1)
-
-    return VAO
 
 def prepare_vao_grid():
     list = []
@@ -372,7 +335,6 @@ def prepare_vao_grid():
             list.extend([(i + 1) * .5,  0., (j) * .5,       0., 0., 1.])
             list.extend([(i + 1) * .5,  0., (j + 1) * .5,   0., 0., 1.])
             list.extend([(i) * .5,      0., (j + 1) * .5,   0., 0., 1.])
-    # print(list)
     tmp = np.array(list, dtype=np.float32)
     vertices = glm.array(tmp)
     # create and activate VAO (vertex array object)
@@ -431,10 +393,8 @@ def prepare_vao_frame():
     return VAO
 
 
-def prepare_vao_obj():
-    global g_vertices
-    vertices = glm.array(g_vertices)
-    print(g_vertices.reshape(int(g_vertices.size / 6), 6))
+def prepare_vao_obj(vertices):
+
     # create and activate VAO (vertex array object)
     VAO = glGenVertexArrays(1)  # create a vertex array object ID and store it to VAO variable
     glBindVertexArray(VAO)      # activate VAO
@@ -456,34 +416,96 @@ def prepare_vao_obj():
 
     return VAO
 
-def draw_frame(vao, MVP, MVP_loc, M, M_loc, view_pos, view_pos_loc):
+def prepare_vao_hierarchy():
+    VAOs = {}
+    # create a hirarchical model - Node(parent, shape_transform, color)
+    Nodes = {}
+    Nodes['pipe'] = Node(None, glm.scale((.2,.2,.2,)),              glm.vec3(0., 1., 0.))
+    Nodes['star'] = Node(Nodes['pipe'], glm.scale((.08,.08,.08)),   glm.vec3(1., 1., .1))
+    Nodes['cube'] = Node(Nodes['pipe'], glm.scale((.02,.02,.02)),   glm.vec3(1., .8, 0.))
+    Nodes['coin'] = Node(Nodes['cube'], glm.scale((.2,.2,.2)),      glm.vec3(1., 1., 0.))
+    Nodes['mario'] = Node(Nodes['cube'], glm.scale((.01,.01,.01)),  glm.vec3(1., 0., 0.))
+
+    for name in Nodes.keys():
+        vertices = files_to_vertex_array(os.getcwd() + '\\' + name + '.obj')
+        # create and activate VAO (vertex array object)
+        VAO = glGenVertexArrays(1)  # create a vertex array object ID and store it to VAO variable
+        glBindVertexArray(VAO)      # activate VAO
+
+        # create and activate VBO (vertex buffer object)
+        VBO = glGenBuffers(1)   # create a buffer object ID and store it to VBO variable
+        glBindBuffer(GL_ARRAY_BUFFER, VBO)  # activate VBO as a vertex buffer object
+
+        # copy vertex data to VBO
+        glBufferData(GL_ARRAY_BUFFER, vertices.nbytes, vertices.ptr, GL_STATIC_DRAW) # allocate GPU memory for and copy vertex data to the currently bound vertex buffer
+
+        # configure vertex positions
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * glm.sizeof(glm.float32), None)
+        glEnableVertexAttribArray(0)
+
+        # configure vertex normals
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * glm.sizeof(glm.float32), ctypes.c_void_p(3*glm.sizeof(glm.float32)))
+        glEnableVertexAttribArray(1)
+        VAOs[name] = VAO
+        Nodes[name].num_vertex = int(len(vertices) / 6)
+        print(int(len(vertices) / 6))
+
+    return VAOs, Nodes
+
+
+def draw_frame(vao, MVP, MVP_loc, M, M_loc, view_pos, view_pos_loc, color_loc):
     glBindVertexArray(vao)
     glUniformMatrix4fv(MVP_loc, 1, GL_FALSE, glm.value_ptr(MVP))
     glUniformMatrix4fv(M_loc, 1, GL_FALSE, glm.value_ptr(M))
     glUniform3f(view_pos_loc, view_pos.x, view_pos.y, view_pos.z)
+    glUniform3f(color_loc, 1., 1., 1.)
     glDrawArrays(GL_LINES, 0, 6)
 
-def draw_cube(vao, MVP, MVP_loc):
-    glBindVertexArray(vao)
-    glUniformMatrix4fv(MVP_loc, 1, GL_FALSE, glm.value_ptr(MVP))
-    glDrawArrays(GL_TRIANGLES, 0, 36)
 
-def draw_grid(vao, MVP, MVP_loc, M, M_loc, view_pos, view_pos_loc):
+def draw_grid(vao, MVP, MVP_loc, M, M_loc, view_pos, view_pos_loc, color_loc):
     glBindVertexArray(vao)
     glUniformMatrix4fv(MVP_loc, 1, GL_FALSE, glm.value_ptr(MVP))
     glUniformMatrix4fv(M_loc, 1, GL_FALSE, glm.value_ptr(M))
     glUniform3f(view_pos_loc, view_pos.x, view_pos.y, view_pos.z)
+    glUniform3f(color_loc, .5, .5, .5)
     for i in range(400):
         glDrawArrays(GL_LINE_LOOP, i * 4, 4)
 
-def draw_obj(vao, MVP, MVP_loc, M, M_loc, view_pos, view_pos_loc):
+def draw_obj(vao, MVP, MVP_loc, M, M_loc, view_pos, view_pos_loc, color_loc):
     global g_vertices
     glBindVertexArray(vao)
     glUniformMatrix4fv(MVP_loc, 1, GL_FALSE, glm.value_ptr(MVP))
     glUniformMatrix4fv(M_loc, 1, GL_FALSE, glm.value_ptr(M))
     glUniform3f(view_pos_loc, view_pos.x, view_pos.y, view_pos.z)
+    glUniform3f(color_loc, 1., 1., 1.)
     glDrawArrays(GL_TRIANGLES, 0, int(g_vertices.size / 6))
 
+def draw_hierarchy(vaos, nodes, VP, MVP_loc, M_loc, view_pos, view_pos_loc, color_loc):
+    t = glfwGetTime()
+    I = glm.mat4()
+    nodes['pipe'].set_transform(glm.rotate(t / 10, glm.vec3(0, 1, 0)) * glm.translate(glm.vec3(.5,0.,0.)))
+    nodes['star'].set_transform(glm.rotate(t, glm.vec3(0.,1.,0)) * glm.translate(glm.vec3(0.,3.,0.)))
+    nodes['cube'].set_transform(glm.translate(glm.vec3(0.,2.,1.5)))
+    nodes['coin'].set_transform(glm.translate(glm.vec3(0., .8 + glm.abs(glm.cos(t * 2)), 0.)) * glm.rotate(t * 2, glm.vec3(0,1,0)))
+    nodes['mario'].set_transform(glm.translate(glm.vec3(0., -1 - glm.abs(glm.cos(t * 2)), 0.)))
+
+    nodes['pipe'].update_tree_global_transform()
+
+    for name in vaos.keys():
+        draw_node(vaos[name], nodes[name], VP, MVP_loc, M_loc, view_pos, view_pos_loc, color_loc)
+
+def draw_node(vao, node, VP, MVP_loc, M_loc, view_pos, view_pos_loc, color_loc):
+    M = node.get_global_transform() * node.get_shape_transform()
+    MVP = VP * M
+    color = node.get_color()
+
+    glBindVertexArray(vao)
+    glUniformMatrix4fv(MVP_loc, 1, GL_FALSE, glm.value_ptr(MVP))
+    glUniformMatrix4fv(M_loc, 1, GL_FALSE, glm.value_ptr(M))
+    glUniform3f(view_pos_loc, view_pos.x, view_pos.y, view_pos.z)
+    glUniform3f(color_loc, color.r, color.g, color.b)
+    glDrawArrays(GL_TRIANGLES, 0, node.num_vertex)
+    
 def main():
     global g_u, g_v, g_w, g_perspective, file_dropped
     # initialize glfw
@@ -517,12 +539,12 @@ def main():
     MVP_loc = glGetUniformLocation(shader_program, 'MVP')
     M_loc = glGetUniformLocation(shader_program, 'M')
     view_pos_loc = glGetUniformLocation(shader_program, 'view_pos')
-    
+    color_loc = glGetUniformLocation(shader_program, 'color')    
+
     # prepare vaos
     vao_frame = prepare_vao_frame()
-    vao_cube = prepare_vao_cube()
     vao_grid = prepare_vao_grid()
-    vao_obj = prepare_vao_obj()
+    vao_hierarchy, node_hierarchy = prepare_vao_hierarchy()
 
     # loop until the user closes the window
     while not glfwWindowShouldClose(window):
@@ -536,8 +558,7 @@ def main():
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
 
         if file_dropped == 1:
-            vao_obj = prepare_vao_obj()
-            print('prepared vao')
+            vao_obj = prepare_vao_obj(g_vertices)
             file_dropped = 2
 
         glUseProgram(shader_program)
@@ -558,9 +579,9 @@ def main():
         camera_position = target_position + g_w * g_distance
 
         # use orthogonal projection
-        P = glm.ortho(-5,5, -5,5, -10,10)
+        P = glm.ortho(-5,5, -5,5, -10000,10000)
         if g_perspective:
-            P = glm.perspective(45, 1, .1, 10)
+            P = glm.perspective(45, 1, .1, 10000)
 
 
         # view matrix
@@ -572,14 +593,14 @@ def main():
         glUniformMatrix4fv(MVP_loc, 1, GL_FALSE, glm.value_ptr(MVP))
         glUniformMatrix4fv(M_loc, 1, GL_FALSE, glm.value_ptr(I))
         glUniform3f(view_pos_loc, camera_position.x, camera_position.y, camera_position.z)
+        glUniform3f(color_loc, 1., 1., 1.)
 
-        # draw_cube(vao_cube, MVP, MVP_loc)
-        draw_frame(vao_frame, MVP, MVP_loc, I, M_loc, camera_position, view_pos_loc)
-        draw_grid(vao_grid, MVP, MVP_loc, I, M_loc, camera_position, view_pos_loc)
-        # if hierarchical_mode:
-        #     draw_hierarchical_model()
-        # elif file_dropped:
-        draw_obj(vao_obj, MVP, MVP_loc, I, M_loc, camera_position, view_pos_loc)
+        draw_frame(vao_frame, MVP, MVP_loc, I, M_loc, camera_position, view_pos_loc, color_loc)
+        draw_grid(vao_grid, MVP, MVP_loc, I, M_loc, camera_position, view_pos_loc, color_loc)
+        if hierarchical_mode:
+            draw_hierarchy(vao_hierarchy, node_hierarchy, MVP, MVP_loc, M_loc, camera_position, view_pos_loc, color_loc)
+        elif file_dropped:
+            draw_obj(vao_obj, MVP, MVP_loc, I, M_loc, camera_position, view_pos_loc, color_loc)
 
         # swap front and back buffers
         glfwSwapBuffers(window)
