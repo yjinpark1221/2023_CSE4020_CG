@@ -121,7 +121,7 @@ void main()
     light3.color = vec3(.3,.3,1);
 
     Light light4;
-    light4.position = vec3(0,4,0);
+    light4.position = vec3(0,10,0);
     light4.color = vec3(1,1,1);
 
     vec3 color1 = calculateColor(light1, material);
@@ -276,7 +276,7 @@ def scroll_callback(window, x_offset, y_offset):
     global g_distance
     g_distance *= np.power(2, y_offset/10)
 
-def files_to_vertex_array(path):
+def files_to_vertex_array(path, isHierarchy = True):
     filename = os.path.basename(path)
     f = open(path)
     
@@ -323,11 +323,12 @@ def files_to_vertex_array(path):
                 face_vertex_array = np.append(face_vertex_array, np.int32(tmpv))
                 face_normal_array = np.append(face_normal_array, np.int32(tmpvn))
             num_face_total += 1
-    print('Obj file name: ' + filename)
-    print('Total number of faces: ' + str(num_face_total))
-    print('Number of faces with 3 vertices: ' + str(num_face_three))
-    print('Number of faces with 4 vertices: ' + str(num_face_four))
-    print('Number of faces with more than 4 vertices: ' + str(num_face_more))
+    if not isHierarchy:
+        print('Obj file name: ' + filename)
+        print('Total number of faces: ' + str(num_face_total))
+        print('Number of faces with 3 vertices: ' + str(num_face_three))
+        print('Number of faces with 4 vertices: ' + str(num_face_four))
+        print('Number of faces with more than 4 vertices: ' + str(num_face_more))
     vertex_array = vertex_array.reshape(int(vertex_array.size / 3), 3)
     normal_array = normal_array.reshape(int(normal_array.size / 3), 3)
     face_vertex_array = face_vertex_array.reshape(int(face_vertex_array.size / 3), 3)
@@ -347,7 +348,7 @@ def files_to_vertex_array(path):
 def drop_callback(window, paths):
     global g_vertices, file_dropped, hierarchical_mode
     for path in paths:
-        g_vertices = files_to_vertex_array(path)
+        g_vertices = files_to_vertex_array(path, False)
         file_dropped = 1
         hierarchical_mode = False
 
