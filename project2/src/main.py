@@ -354,14 +354,14 @@ def drop_callback(window, paths):
 
 def prepare_vao_grid():
     list = []
-    s = -10
-    e = 10
+    s = -20
+    e = 20
     for i in range(s, e):
         for j in range(s, e):
-            list.extend([(i) * .5,      0., (j) * .5,       0., 0., 1.])
-            list.extend([(i + 1) * .5,  0., (j) * .5,       0., 0., 1.])
-            list.extend([(i + 1) * .5,  0., (j + 1) * .5,   0., 0., 1.])
-            list.extend([(i) * .5,      0., (j + 1) * .5,   0., 0., 1.])
+            list.extend([(i) * .2,      0., (j) * .2,       0., 1., 0.])
+            list.extend([(i + 1) * .2,  0., (j) * .2,       0., 1., 0.])
+            list.extend([(i + 1) * .2,  0., (j + 1) * .2,   0., 1., 0.])
+            list.extend([(i) * .2,      0., (j + 1) * .2,   0., 1., 0.])
     tmp = np.array(list, dtype=np.float32)
     vertices = glm.array(tmp)
     # create and activate VAO (vertex array object)
@@ -507,7 +507,7 @@ def draw_grid(vao, MVP, MVP_loc, M, M_loc, view_pos, view_pos_loc, color_loc):
     glUniformMatrix4fv(M_loc, 1, GL_FALSE, glm.value_ptr(M))
     glUniform3f(view_pos_loc, view_pos.x, view_pos.y, view_pos.z)
     glUniform3f(color_loc, .5, .5, .5)
-    for i in range(400):
+    for i in range(1600):
         glDrawArrays(GL_LINE_LOOP, i * 4, 4)
 
 def draw_obj(vao, MVP, MVP_loc, M, M_loc, view_pos, view_pos_loc, color_loc):
