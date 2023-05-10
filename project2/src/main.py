@@ -109,22 +109,27 @@ void main()
     material.shininess = 32.0;
 
     Light light1;
-    light1.position = vec3(0,10,10);
-    light1.color = vec3(.5,1,1);
+    light1.position = vec3(-5,2,0);
+    light1.color = vec3(1,.3,.3);
 
     Light light2;
-    light2.position = vec3(10, 10, 0);
-    light2.color = vec3(1,.5,1);
+    light2.position = vec3(3, 2, 4);
+    light2.color = vec3(.3,1,.3);
 
     Light light3;
-    light3.position = vec3(-8, 10, -6);
-    light3.color = vec3(1,1,.5);
+    light3.position = vec3(3, 2, -4);
+    light3.color = vec3(.3,.3,1);
+
+    Light light4;
+    light4.position = vec3(0,4,0);
+    light4.color = vec3(1,1,1);
 
     vec3 color1 = calculateColor(light1, material);
     vec3 color2 = calculateColor(light2, material);
     vec3 color3 = calculateColor(light3, material);
+    vec3 color4 = calculateColor(light4, material);
 
-    vec3 color_sum = vec3(min(color1.r + color2.r + color3.r, 1), min(color1.g + color2.g + color3.g, 1), min(color1.b + color2.b + color3.b, 1));
+    vec3 color_sum = vec3(min(color1.r + color2.r + color3.r + color4.r, 1), min(color1.g + color2.g + color3.g + color4.g, 1), min(color1.b + color2.b + color3.b + color4.b, 1));
     FragColor = vec4(color_sum, 1.);
 }
 '''
@@ -445,8 +450,8 @@ def prepare_vao_hierarchy():
     Nodes['pipe'] = Node(None, glm.scale((.2,.2,.2,)),              glm.vec3(0., .8, 0.))
     Nodes['star'] = Node(Nodes['pipe'], glm.scale((.08,.08,.08)),   glm.vec3(1., 1., .1))
     Nodes['star1'] = Node(Nodes['star'], glm.scale((.04,.04,.04)),   glm.vec3(1., .5, .5))
-    Nodes['star2'] = Node(Nodes['star'], glm.scale((.04,.04,.04)),   glm.vec3(.5, 1., .5))
-    Nodes['star3'] = Node(Nodes['star'], glm.scale((.04,.04,.04)),   glm.vec3(.5, .5, .5))
+    Nodes['star2'] = Node(Nodes['star'], glm.scale((.04,.04,.04)),   glm.vec3(.5, .5, 1))
+    Nodes['star3'] = Node(Nodes['star'], glm.scale((.04,.04,.04)),   glm.vec3(1, 1, 1))
     Nodes['cube'] = Node(Nodes['pipe'], glm.scale((.02,.02,.02)),   glm.vec3(1., .8, 0.))
     Nodes['coin'] = Node(Nodes['cube'], glm.scale((.2,.2,.2)),      glm.vec3(1., 1., 0.))
     Nodes['mario'] = Node(Nodes['cube'], glm.scale((.01,.01,.01)),  glm.vec3(1., 0., 0.))
@@ -518,7 +523,7 @@ def draw_hierarchy(vaos, nodes, VP, MVP_loc, M_loc, view_pos, view_pos_loc, colo
     t = glfwGetTime()
     I = glm.mat4()
     nodes['pipe'].set_transform(glm.rotate(t / 10, glm.vec3(0, 1, 0)) * glm.translate(glm.vec3(.5,0.,0.)))
-    nodes['star'].set_transform(glm.rotate(t, glm.vec3(0.,1.,0)) * glm.translate(glm.vec3(0.,3.,0.)))
+    nodes['star'].set_transform(glm.rotate(t, glm.vec3(0.,1.,0)) * glm.translate(glm.vec3(0.,3. + glm.cos(2 * t), 0.)))
     nodes['star1'].set_transform(glm.rotate(t * 2, glm.vec3(0.,1.,.5)) * glm.translate(glm.vec3(0.,1.,2.)))
     nodes['star2'].set_transform(glm.rotate(t * 2, glm.vec3(.5,1.,0)) * glm.translate(glm.vec3(2.,1.,0.)))
     nodes['star3'].set_transform(glm.rotate(t * 2, glm.vec3(.3,1.,3)) * glm.translate(glm.vec3(1.,1.,1.)))
