@@ -12,7 +12,7 @@ g_perspective = True
 g_trans = glm.vec3(0.,0.,0.)
 g_vertices = np.zeros(0, 'float32')
 g_indices = glm.array.zeros(0, glm.float32)
-hierarchical_mode = 0
+hierarchical_mode = False
 file_dropped = 0
 solid_mode = False
 
@@ -58,23 +58,27 @@ out vec4 FragColor;
 
 uniform vec3 view_pos;
 
-void main()
-{
-    // light and material properties
-    vec3 light_pos = vec3(3,2,4);
-    vec3 light_color = vec3(1,1,1);
-    vec3 material_color = color;
-    float material_shininess = 32.0;
+struct Light {    
+    vec3 position;
+    vec3 color;
+};
+
+struct Material {
+    vec3 color;
+    float shininess;
+};
+
+vec3 calculateColor(Light light, Material material) {
 
     // light components
-    vec3 light_ambient = 0.1*light_color;
-    vec3 light_diffuse = light_color;
-    vec3 light_specular = light_color;
+    vec3 light_ambient = 0.1 * light.color;
+    vec3 light_diffuse = light.color;
+    vec3 light_specular = light.color;
 
     // material components
-    vec3 material_ambient = material_color;
-    vec3 material_diffuse = material_color;
-    vec3 material_specular = light_color;  // for non-metal material
+    vec3 material_ambient = material.color;
+    vec3 material_diffuse = material.color;
+    vec3 material_specular = light.color;  // for non-metal material
 
     // ambient
     vec3 ambient = light_ambient * material_ambient;
@@ -82,7 +86,7 @@ void main()
     // for diffiuse and specular
     vec3 normal = normalize(vout_normal);
     vec3 surface_pos = vout_surface_pos;
-    vec3 light_dir = normalize(light_pos - surface_pos);
+    vec3 light_dir = normalize(light.position - surface_pos);
 
     // diffuse
     float diff = max(dot(normal, light_dir), 0);
@@ -91,11 +95,37 @@ void main()
     // specular
     vec3 view_dir = normalize(view_pos - surface_pos);
     vec3 reflect_dir = reflect(-light_dir, normal);
-    float spec = pow( max(dot(view_dir, reflect_dir), 0.0), material_shininess);
+    float spec = pow( max(dot(view_dir, reflect_dir), 0.0), material.shininess);
     vec3 specular = spec * light_specular * material_specular;
 
-    vec3 color = ambient + diffuse + specular;
-    FragColor = vec4(color, 1.);
+    return (ambient + diffuse + specular);
+}
+
+void main()
+{
+    // light and material properties
+    Material material;
+    material.color = color;
+    material.shininess = 32.0;
+
+    Light light1;
+    light1.position = vec3(0,10,10);
+    light1.color = vec3(.5,1,1);
+
+    Light light2;
+    light2.position = vec3(10, 10, 0);
+    light2.color = vec3(1,.5,1);
+
+    Light light3;
+    light3.position = vec3(-8, 10, -6);
+    light3.color = vec3(1,1,.5);
+
+    vec3 color1 = calculateColor(light1, material);
+    vec3 color2 = calculateColor(light2, material);
+    vec3 color3 = calculateColor(light3, material);
+
+    vec3 color_sum = vec3(min(color1.r + color2.r + color3.r, 1), min(color1.g + color2.g + color3.g, 1), min(color1.b + color2.b + color3.b, 1));
+    FragColor = vec4(color_sum, 1.);
 }
 '''
 
@@ -232,7 +262,7 @@ def key_callback(window, key, scancode, action, mods):
             if key==GLFW_KEY_V:
                 g_perspective = not g_perspective
             elif key==GLFW_KEY_H:
-                hierarchical_mode = 1
+                hierarchical_mode = True
             elif key==GLFW_KEY_Z:
                 solid_mode = not solid_mode
 
@@ -256,27 +286,21 @@ def files_to_vertex_array(path):
     face_normal_array = np.array([], 'int32')
     for line in lines:
         fields = line.split()
-        # print('line [' + line.strip() + ']')
         if len(fields) == 0:
             continue
         if fields[0] == 'v':
-            # print('accepting ' + line.strip())
             vertex = (fields[1], fields[2], fields[3])
             vertex_array = np.append(vertex_array, np.float32(vertex))
         elif fields[0] == 'vn':
-            # print('accepting ' + line.strip())
             normal = (fields[1], fields[2], fields[3])
             normal_array = np.append(normal_array, np.float32(normal))
         elif fields[0] == 'f':
-            # print('accepting ' + line.strip())
             if len(fields) == 4:
                 num_face_three += 1
             elif len(fields) == 5:
                 num_face_four += 1
             elif len(fields) >= 6:
                 num_face_more += 1
-            # else:
-                # print("?")
 
             v0 = fields[1].split('/')
             # print(v0)
@@ -294,8 +318,6 @@ def files_to_vertex_array(path):
                 face_vertex_array = np.append(face_vertex_array, np.int32(tmpv))
                 face_normal_array = np.append(face_normal_array, np.int32(tmpvn))
             num_face_total += 1
-        # else:
-            # print('ignoring ' + line.strip())
     print('Obj file name: ' + filename)
     print('Total number of faces: ' + str(num_face_total))
     print('Number of faces with 3 vertices: ' + str(num_face_three))
@@ -318,11 +340,11 @@ def files_to_vertex_array(path):
     return glm.array(vertices)
 
 def drop_callback(window, paths):
-    global g_vertices, file_dropped, hierarchy_mode
+    global g_vertices, file_dropped, hierarchical_mode
     for path in paths:
         g_vertices = files_to_vertex_array(path)
         file_dropped = 1
-        hierarchy_mode = 0
+        hierarchical_mode = False
 
 
 def prepare_vao_grid():
@@ -422,11 +444,17 @@ def prepare_vao_hierarchy():
     Nodes = {}
     Nodes['pipe'] = Node(None, glm.scale((.2,.2,.2,)),              glm.vec3(0., .8, 0.))
     Nodes['star'] = Node(Nodes['pipe'], glm.scale((.08,.08,.08)),   glm.vec3(1., 1., .1))
+    Nodes['star1'] = Node(Nodes['star'], glm.scale((.04,.04,.04)),   glm.vec3(1., .5, .5))
+    Nodes['star2'] = Node(Nodes['star'], glm.scale((.04,.04,.04)),   glm.vec3(.5, 1., .5))
+    Nodes['star3'] = Node(Nodes['star'], glm.scale((.04,.04,.04)),   glm.vec3(.5, .5, .5))
     Nodes['cube'] = Node(Nodes['pipe'], glm.scale((.02,.02,.02)),   glm.vec3(1., .8, 0.))
     Nodes['coin'] = Node(Nodes['cube'], glm.scale((.2,.2,.2)),      glm.vec3(1., 1., 0.))
     Nodes['mario'] = Node(Nodes['cube'], glm.scale((.01,.01,.01)),  glm.vec3(1., 0., 0.))
 
     for name in Nodes.keys():
+        if name == 'star1' or name == 'star2' or name == 'star3':
+            continue
+
         vertices = files_to_vertex_array(name + '.obj')
         # create and activate VAO (vertex array object)
         VAO = glGenVertexArrays(1)  # create a vertex array object ID and store it to VAO variable
@@ -448,7 +476,13 @@ def prepare_vao_hierarchy():
         glEnableVertexAttribArray(1)
         VAOs[name] = VAO
         Nodes[name].num_vertex = int(len(vertices) / 6)
-        print(int(len(vertices) / 6))
+    
+    Nodes['star1'].num_vertex = Nodes['star'].num_vertex
+    Nodes['star2'].num_vertex = Nodes['star'].num_vertex
+    Nodes['star3'].num_vertex = Nodes['star'].num_vertex
+    VAOs['star1'] = VAOs['star']
+    VAOs['star2'] = VAOs['star']
+    VAOs['star3'] = VAOs['star']
 
     return VAOs, Nodes
 
@@ -478,15 +512,18 @@ def draw_obj(vao, MVP, MVP_loc, M, M_loc, view_pos, view_pos_loc, color_loc):
     glUniformMatrix4fv(M_loc, 1, GL_FALSE, glm.value_ptr(M))
     glUniform3f(view_pos_loc, view_pos.x, view_pos.y, view_pos.z)
     glUniform3f(color_loc, 1., 1., 1.)
-    glDrawArrays(GL_TRIANGLES, 0, int(g_vertices.size / 6))
+    glDrawArrays(GL_TRIANGLES, 0, int(len(g_vertices) / 6))
 
 def draw_hierarchy(vaos, nodes, VP, MVP_loc, M_loc, view_pos, view_pos_loc, color_loc):
     t = glfwGetTime()
     I = glm.mat4()
     nodes['pipe'].set_transform(glm.rotate(t / 10, glm.vec3(0, 1, 0)) * glm.translate(glm.vec3(.5,0.,0.)))
     nodes['star'].set_transform(glm.rotate(t, glm.vec3(0.,1.,0)) * glm.translate(glm.vec3(0.,3.,0.)))
+    nodes['star1'].set_transform(glm.rotate(t * 2, glm.vec3(0.,1.,.5)) * glm.translate(glm.vec3(0.,1.,2.)))
+    nodes['star2'].set_transform(glm.rotate(t * 2, glm.vec3(.5,1.,0)) * glm.translate(glm.vec3(2.,1.,0.)))
+    nodes['star3'].set_transform(glm.rotate(t * 2, glm.vec3(.3,1.,3)) * glm.translate(glm.vec3(1.,1.,1.)))
     nodes['cube'].set_transform(glm.translate(glm.vec3(0.,2.,1.5)) * glm.scale(glm.vec3(1.,glm.max(.9, glm.abs(glm.sin(t * 2))), 1.)))
-    nodes['coin'].set_transform(glm.translate(glm.vec3(0., .8 + glm.abs(glm.cos(t * 2)), 0.)) * glm.rotate(t * 2, glm.vec3(0,1,0)))
+    nodes['coin'].set_transform(glm.translate(glm.vec3(0., .3 + 2 * glm.abs(glm.cos(t * 2)), 0.)) * glm.rotate(t * 2, glm.vec3(0,1,0)))
     nodes['mario'].set_transform(glm.translate(glm.vec3(0., -1 - glm.abs(glm.cos(t * 2)), 0.)))
 
     nodes['pipe'].update_tree_global_transform()
@@ -507,7 +544,7 @@ def draw_node(vao, node, VP, MVP_loc, M_loc, view_pos, view_pos_loc, color_loc):
     glDrawArrays(GL_TRIANGLES, 0, node.num_vertex)
     
 def main():
-    global g_u, g_v, g_w, g_perspective, file_dropped
+    global g_u, g_v, g_w, g_perspective, file_dropped, hierarchical_mode
     # initialize glfw
     if not glfwInit():
         return
