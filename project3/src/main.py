@@ -20,7 +20,7 @@ g_joints = []
 g_nodes = {}
 g_rate = 0.0
 g_frames = 0
-
+animate_mode = False
 cid = {}
 cid['XPOSITION'] = 1
 cid['YPOSITION'] = 2
@@ -39,6 +39,7 @@ lastX = 0.
 lastY = 0.
 dragging_left = False
 dragging_right = False
+YJ_SITE = 's i t e '
 
 g_vertex_shader_src = '''
 #version 330 core
@@ -61,7 +62,6 @@ void main()
     vout_normal = normalize( mat3(inverse(transpose(M)) ) * vin_normal);
 }
 '''
-
 g_fragment_shader_src = '''
 #version 330 core
 
@@ -149,7 +149,6 @@ void main()
 }
 '''
 
-
 class Node:
     def __init__(self, parent, link_transform_from_parent, shape_transform, color):
         # hierarchy
@@ -209,7 +208,6 @@ class Joint:
         for e in fm:
             tmp.append(e)
         self.frame_motions.append(tmp)
-        
 
 def load_shaders(vertex_shader_source, fragment_shader_source):
     # build and compile our shader program
@@ -297,10 +295,9 @@ def mouse_callback(window, xpos, ypos):
 
         lastX = xpos
         lastY = ypos
-        
 
 def key_callback(window, key, scancode, action, mods):
-    global g_perspective, hierarchical_mode, solid_mode, rendering_mode
+    global g_perspective, hierarchical_mode, solid_mode, rendering_mode, animate_mode
     if key==GLFW_KEY_ESCAPE and action==GLFW_PRESS:
         glfwSetWindowShouldClose(window, GLFW_TRUE)
     else:
@@ -315,13 +312,14 @@ def key_callback(window, key, scancode, action, mods):
                 rendering_mode = 1
             elif key==GLFW_KEY_2:
                 rendering_mode = 2
-
+            elif key==GLFW_KEY_SPACE:
+                animate_mode = True
 
 def scroll_callback(window, x_offset, y_offset):
     global g_distance
     g_distance *= np.power(2, y_offset/10)
 
-def files_parse(path):
+def parse_file(path):
     global g_rate, g_frames
     filename = os.path.basename(path)
     f = open(path)
@@ -437,7 +435,7 @@ def files_parse(path):
                     print("joint- offset, channel error")
             elif end_section:
                 if name_section:
-                    joint_list.append(Joint(stack[-1], field + str(site_count)))
+                    joint_list.append(Joint(stack[-1], YJ_SITE + str(site_count)))
                     site_count += 1
                     stack.append(joint_list[-1])
                 elif offset_section:
@@ -467,10 +465,17 @@ def files_parse(path):
                 motion_index += 1
             joint.append_frame_motions(channels)
 
+    print('- File name:', filename)
+    print('- Number of frames:', g_frames)
+    print('- FPS:', g_rate)
+    print('- Number of joints:', len(joint_list) - site_count)
+    print('- List of all joint names:')
+
     for joint in joint_list:
-        pn = '0'
-        if joint.parent:
-            pn = joint.parent.name
+        if joint.name[0:(len(YJ_SITE))] == YJ_SITE:
+            continue
+        print('\t' + joint.name)
+
     return joint_list
 
 def channels_to_j(channels, rot):
@@ -491,27 +496,24 @@ def channels_to_j(channels, rot):
         if channels[i] == cid["ZROTATION"]:
             rotation = rotation * glm.rotate(glm.radians(rot[i]), glm.vec3(0,0,1))
     return rotation
-    # return glm.mat4()
 
-def offsetToDist(offset):
+def offset_to_distance(offset):
     sum = 0.0
     for i in range(3):
         sum += offset[i] * offset[i]
     sum = glm.sqrt(sum)
     return sum
 
-def jointsToNodes(joints):
+def joints_to_nodes(joints):
     Nodes = {}
     for joint in joints:
         link = glm.translate(glm.vec3(joint.offset[0], joint.offset[1], joint.offset[2]))
         if joint.parent is None:
             Nodes[joint.name] = Node(None, link, glm.scale((.05,.05,.05)) * glm.translate(glm.vec3(0,1,0)), glm.vec3(1,1,1))
-            # if joint.name[0:3] == "Site":
-            #     Nodes[joint.name].color = glm.vec4(0.,0.,1.)
             continue
 
         parent_node = Nodes[joint.parent.name]
-        dist = offsetToDist(joint.offset)
+        dist = offset_to_distance(joint.offset)
         offset = glm.vec3(joint.offset[0], joint.offset[1], joint.offset[2])
         up = glm.vec3(0.,1.,0.)
 
@@ -523,7 +525,6 @@ def jointsToNodes(joints):
             else:
                 angle = np.pi
         
-        print(joint.name, angle, joint.offset)
         up_rotation = glm.rotate(angle, glm.normalize(glm.cross(up, offset)))
         if angle == 0:
             up_rotation = glm.mat4()
@@ -533,12 +534,12 @@ def jointsToNodes(joints):
     return Nodes
 
 def drop_callback(window, paths):
-    global g_joints, g_nodes, file_dropped
+    global g_joints, g_nodes, file_dropped, animate_mode
+    animate_mode = False
     for path in paths:
-        g_joints = files_parse(path)
-        g_nodes = jointsToNodes(g_joints)
+        g_joints = parse_file(path)
+        g_nodes = joints_to_nodes(g_joints)
     file_dropped = True
-
 
 def prepare_vao_grid():
     list = []
@@ -572,7 +573,6 @@ def prepare_vao_grid():
     glEnableVertexAttribArray(1)
 
     return VAO
-
 
 def prepare_vao_frame():
     # prepare vertex data (in main memory)
@@ -753,7 +753,8 @@ def draw_grid(vao, MVP, MVP_loc, M, M_loc, view_pos, view_pos_loc, color_loc):
     for i in range(1600):
         glDrawArrays(GL_LINE_LOOP, i * 4, 4)
 
-def draw_node(vao, node, VP, MVP_loc, M, M_loc, view_pos, view_pos_loc, color_loc, mode):
+def draw_node(vao, node, VP, MVP_loc, M, M_loc, view_pos, view_pos_loc, color_loc):
+    global rendering_mode
     if node.parent is None:
         return
     M = node.get_draw_transform() * node.get_shape_transform()
@@ -765,28 +766,31 @@ def draw_node(vao, node, VP, MVP_loc, M, M_loc, view_pos, view_pos_loc, color_lo
     glUniformMatrix4fv(M_loc, 1, GL_FALSE, glm.value_ptr(M))
     glUniform3f(view_pos_loc, view_pos.x, view_pos.y, view_pos.z)
     glUniform3f(color_loc, color.r, color.g, color.b)
-    if mode == 1:
+
+    if rendering_mode == 1:
         glDrawArrays(GL_LINES, 0, 2)
-    elif mode == 2:
+    elif rendering_mode == 2:
         glDrawArrays(GL_TRIANGLES, 0, 36)
 
-
-def draw_bvh(nodes, joints, vao_cube, vao_line, VP, MVP_loc, M_loc, view_pos, view_pos_loc, color_loc, mode):
-    if mode == 1:
+def draw_bvh(nodes, joints, vao_cube, vao_line, VP, MVP_loc, M_loc, view_pos, view_pos_loc, color_loc):
+    global rendering_mode, animate_mode
+    if rendering_mode == 1:
         vao = vao_line
-    elif mode == 2:
+    elif rendering_mode == 2:
         vao = vao_cube
     else:
         return
-    t = glfwGetTime()
-    frame = int(t // g_rate) % g_frames
-    I = glm.mat4()
-    for joint in joints:
-        nodes[joint.name].set_joint_transform(channels_to_j(joint.channels, joint.frame_motions[frame]))
 
+    I = glm.mat4()
+    if animate_mode:
+        t = glfwGetTime()
+        frame = int(t // g_rate) % g_frames
+        for joint in joints:
+            nodes[joint.name].set_joint_transform(channels_to_j(joint.channels, joint.frame_motions[frame]))
     nodes[joints[0].name].update_tree_global_transform()
+
     for joint in joints:
-        draw_node(vao, nodes[joint.name], VP, MVP_loc, I, M_loc, view_pos, view_pos_loc, color_loc, mode)
+        draw_node(vao, nodes[joint.name], VP, MVP_loc, I, M_loc, view_pos, view_pos_loc, color_loc)
     
 def main():
     global g_u, g_v, g_w, g_perspective, file_dropped, hierarchical_mode, rendering_mode
@@ -876,16 +880,15 @@ def main():
         draw_frame(vao_frame, MVP, MVP_loc, I, M_loc, camera_position, view_pos_loc, color_loc)
         draw_grid(vao_grid, MVP, MVP_loc, I, M_loc, camera_position, view_pos_loc, color_loc)
         if file_dropped:
-            print(rendering_mode)
-            draw_bvh(g_nodes, g_joints, vao_cube, vao_line, MVP, MVP_loc, M_loc, camera_position, view_pos_loc, color_loc, rendering_mode)
+            draw_bvh(g_nodes, g_joints, vao_cube, vao_line, MVP, MVP_loc, M_loc, camera_position, view_pos_loc, color_loc)
         # swap front and back buffers
         glfwSwapBuffers(window)
 
         # poll events
         glfwPollEvents()
 
-    # # terminate glfw
-    # glfwTerminate()
+    # terminate glfw
+    glfwTerminate()
 
 if __name__ == "__main__":
     main()
